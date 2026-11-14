@@ -462,6 +462,39 @@
             tryNext();
         });
 
+        // ---------- YouTube (player oficial incorporado) ----------
+        function youtubeId(u) {
+            const h = u.hostname.replace(/^www\.|^m\./, '');
+            let id = null;
+            if (h === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+            else if (h === 'youtube.com' || h === 'music.youtube.com') {
+                id = u.searchParams.get('v');
+                const m = u.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]{11})/);
+                if (!id && m) id = m[1];
+            }
+            return id && /^[\w-]{11}$/.test(id) ? id : null;
+        }
+
+        function removeEmbed() {
+            const box = document.querySelector('.player-container');
+            box.querySelectorAll('iframe').forEach(f => f.remove());
+            $('videoPlayer').style.display = '';
+        }
+
+        function showEmbed(id) {
+            resetPlayer();
+            removeEmbed();
+            const box = document.querySelector('.player-container');
+            $('videoPlayer').style.display = 'none';
+            const f = document.createElement('iframe');
+            f.src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1`;
+            f.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+            f.allowFullscreen = true;
+            f.style.cssText = 'width:100%;height:100%;border:0;';
+            f.title = 'Player do YouTube';
+            box.appendChild(f);
+        }
+
         // ---------- Fluxo principal ----------
         async function extrairEExecutar() {
             if (busy) return;
@@ -474,6 +507,18 @@
                 url = url.href;
             } catch {
                 showMessage('Informe uma URL válida começando com http:// ou https://', true);
+                return;
+            }
+
+            removeEmbed();
+            const ytId = youtubeId(new URL(url));
+            if (ytId) {
+                items = [];
+                currentIndex = -1;
+                showMessage('O YouTube não expõe links .mp4/.m3u8 diretos. Usando o player oficial incorporado.');
+                log(`YouTube detectado (${ytId}). Carregando player incorporado.`);
+                log('Se aparecer erro 150/153, o dono do vídeo bloqueou a reprodução fora do YouTube.');
+                showEmbed(ytId);
                 return;
             }
 
