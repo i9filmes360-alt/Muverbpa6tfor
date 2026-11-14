@@ -25,8 +25,8 @@
   <main>
     <h1>Gerar código do player</h1>
 
-    <label for="link">Link original do vídeo</label>
-    <input id="link" type="text" placeholder="https://youtu.be/1Bv8VKiuTDw" autocomplete="off">
+    <label for="link">Link do vídeo (YouTube ou .mp4 direto)</label>
+    <input id="link" type="text" placeholder="Link do YouTube ou link direto .mp4" autocomplete="off">
     <div id="erro" role="status"></div>
     <div id="idinfo"></div>
 
@@ -66,6 +66,31 @@
       '</html>'
     ].join("\n");
 
+    var MODELO_VIDEO = [
+      '<!DOCTYPE html>',
+      '<html lang="pt-BR">',
+      '<head>',
+      '  <meta charset="utf-8">',
+      '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+      '  <title>Player</title>',
+      '  <style>',
+      '    html, body { margin: 0; height: 100%; background: #000; }',
+      '    video { width: 100%; height: 100%; background: #000; }',
+      '  </style>',
+      '</head>',
+      '<body>',
+      '  <video id="player" controls autoplay playsinline></video>',
+      '',
+      '  <script>',
+      '    // LINK DIRETO DO VÍDEO:',
+      '    var URL_VIDEO = {{URL}};',
+      '',
+      '    document.getElementById("player").src = URL_VIDEO;',
+      '  <\/script>',
+      '</body>',
+      '</html>'
+    ].join("\n");
+
     var link = document.getElementById("link");
     var codigo = document.getElementById("codigo");
     var erro = document.getElementById("erro");
@@ -81,16 +106,22 @@
 
     link.addEventListener("input", function () {
       var v = link.value.trim();
-      var id = extrairId(v);
       botao.textContent = "Copiar e salvar como...";
-      if (id) {
+      var direto = /^https?:\/\/[^\s]+\.(mp4|webm|ogg)([?#]\S*)?$/i.test(v);
+      var id = direto ? null : extrairId(v);
+
+      if (direto) {
+        codigo.value = MODELO_VIDEO.replace("{{URL}}", function () { return JSON.stringify(v); });
+        info.textContent = "Link direto de vídeo detectado (player de vídeo comum).";
+        erro.textContent = "";
+      } else if (id) {
         codigo.value = MODELO.replace("{{ID}}", id);
-        info.textContent = "ID encontrado: " + id;
+        info.textContent = "YouTube detectado. ID encontrado: " + id;
         erro.textContent = "";
       } else {
         codigo.value = "";
         info.textContent = "";
-        erro.textContent = v ? "Não encontrei um ID nesse link." : "";
+        erro.textContent = v ? "Não reconheci esse link. Use um link do YouTube ou um link direto terminado em .mp4, .webm ou .ogg." : "";
       }
     });
 
