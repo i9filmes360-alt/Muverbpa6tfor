@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>i9tv - Extractor & Player Automático</title>
+    <title>i9tv - Extractor & Player Manual/Automático</title>
     <style>
         :root {
             --bg-color: #1E1E1E;
@@ -44,8 +44,33 @@
 
         .input-group {
             display: flex;
+            flex-direction: column;
             gap: 10px;
             margin-bottom: 15px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 12px;
+            background: #151515;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: #FFF;
+            font-family: monospace;
+            font-size: 0.85rem;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        textarea:focus, input[type="text"]:focus {
+            border-color: var(--accent-color);
+            outline: none;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 10px;
         }
 
         input[type="text"] {
@@ -56,11 +81,6 @@
             border-radius: 6px;
             color: #FFF;
             font-size: 1rem;
-        }
-
-        input[type="text"]:focus {
-            border-color: var(--accent-color);
-            outline: none;
         }
 
         button {
@@ -153,7 +173,6 @@
         .link-actions { display: flex; gap: 4px; }
 
         button:disabled { opacity: 0.5; cursor: not-allowed; }
-        button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
 
         .link-chip button {
             padding: 4px 8px;
@@ -185,20 +204,25 @@
 <body>
 
     <div class="container">
-        <h2>⚡ i9tv - Extractor Automático & Player</h2>
+        <h2>⚡ i9tv - Extractor por Código-Fonte & Player</h2>
         
         <div class="input-group">
-            <input type="text" id="pageUrlInput" inputmode="url" autocomplete="off" placeholder="Cole a URL da página ou link direto do vídeo (.mp4/.m3u8)...">
-            <button id="extractBtn">Extrair / Tocar</button>
+            <label for="htmlInput" style="font-size: 0.9rem; color: var(--accent-color); font-weight: bold;">1. Cole o Código-Fonte (HTML) da Página do Vídeo:</label>
+            <textarea id="htmlInput" placeholder="Cole o código HTML completo da página aqui..."></textarea>
+            
+            <div class="btn-row">
+                <input type="text" id="baseUrlInput" placeholder="URL base do site (opcional, ex: https://krausefilmes.com)">
+                <button id="extractBtn">Extrair e Tocar</button>
+            </div>
         </div>
-        <div class="hint">Dica: Se o site bloquear a extração automática por segurança, cole o link direto do arquivo de vídeo (.mp4 ou .m3u8) no campo acima.</div>
+        <div class="hint">Dica: Abra a página do filme, clique com botão direito > "Exibir código-fonte da página", copie tudo (`Ctrl+A`, `Ctrl+C`) e cole no campo acima.</div>
 
         <div class="workspace">
             <!-- Coluna da Esquerda: Links Detectados -->
             <div class="panel-box">
-                <h3>Links Extraídos / Adicionados</h3>
+                <h3>Links Extraídos</h3>
                 <div class="links-list" id="linksContainer">
-                    <span style="color: #666; font-size: 0.85rem; text-align: center; margin-top: 20px;">Aguardando URL...</span>
+                    <span style="color: #666; font-size: 0.85rem; text-align: center; margin-top: 20px;">Aguardando código-fonte...</span>
                 </div>
             </div>
 
@@ -213,19 +237,13 @@
             </div>
         </div>
 
-        <div class="log-box" id="logBox" aria-live="polite">&gt; Status do sistema: pronto.</div>
+        <div class="log-box" id="logBox" aria-live="polite">&gt; Status: pronto para receber o código HTML.</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.8/hls.min.js"></script>
     <script>
         const MAX_LOG = 50;
-        const TIMEOUT_MS = 12000;
-        const PROXIES = [
-            u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-            u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
-        ];
-
-        const MEDIA_REGEX = /https?:\/\/[^"'\s<>\\]+?\.(?:mp4|m3u8|ts|m4s)(?:\?[^"'\s<>\\]*)?/gi;
+        const MEDIA_REGEX = /https?:\/\/[^"'\s<>\\]+?\.(?:mp4|m3u8|ts|m4s|webm|ogv)(?:\?[^"'\s<>\\]*)?/gi;
         const JUNK_REGEX = /(thumb|preview|sprite|poster|trailer|[\/_.-]ads?[\/_.-])/i;
 
         const $ = id => document.getElementById(id);
@@ -233,7 +251,6 @@
         let hls = null;
         let items = [];
         let currentIndex = -1;
-        let busy = false;
 
         function log(msg) {
             logLines.push(msg);
@@ -241,13 +258,6 @@
             const box = $('logBox');
             box.textContent = logLines.map(l => '> ' + l).join('\n');
             box.scrollTop = box.scrollHeight;
-        }
-
-        function setBusy(state) {
-            busy = state;
-            const btn = $('extractBtn');
-            btn.disabled = state;
-            btn.textContent = state ? 'Processando...' : 'Extrair / Tocar';
         }
 
         function showMessage(text, danger) {
@@ -258,29 +268,6 @@
             s.style.color = danger ? 'var(--danger-color)' : '#666';
             s.textContent = text;
             c.appendChild(s);
-        }
-
-        async function fetchHtml(url) {
-            let lastErr = null;
-            const direct = u => u;
-            for (const build of [direct, ...PROXIES]) {
-                const label = build === direct ? 'conexão direta' : 'proxy ' + new URL(build('https://x.com')).host;
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-                    const res = await fetch(build(url), { signal: controller.signal });
-                    clearTimeout(timeoutId);
-
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    const text = await res.text();
-                    if (!text || text.length < 20) throw new Error('resposta vazia');
-                    return text;
-                } catch (e) {
-                    lastErr = e;
-                    log(`${label} falhou (${e.name === 'AbortError' ? 'timeout' : e.message}).`);
-                }
-            }
-            throw new Error(`Todos os métodos falharam. O site bloqueou o acesso automatizado.`);
         }
 
         function normalize(html) {
@@ -306,13 +293,16 @@
             const doc = new DOMParser().parseFromString(clean, 'text/html');
 
             const add = raw => {
-                const abs = raw && resolveUrl(raw, baseUrl);
+                if (!raw) return;
+                // Se o link for relativo, tenta resolver com a baseUrl se fornecida
+                const abs = baseUrl ? resolveUrl(raw, baseUrl) : (raw.startsWith('http') ? raw : null);
                 if (abs && isMedia(abs)) media.add(abs);
+                else if (isMedia(raw)) media.add(raw);
             };
 
             doc.querySelectorAll('meta[property="og:video"], meta[property="og:video:url"], meta[property="og:video:secure_url"], meta[name="twitter:player:stream"]')
                 .forEach(m => add(m.getAttribute('content')));
-            doc.querySelectorAll('video, source').forEach(el => {
+            doc.querySelectorAll('video, source, iframe').forEach(el => {
                 add(el.getAttribute('src'));
                 add(el.getAttribute('data-src'));
             });
@@ -332,7 +322,6 @@
                 return {
                     url: u,
                     hls: hlsType,
-                    quality: 0,
                     label: hlsType ? 'HLS (Stream)' : (u.split('?')[0].split('.').pop() || 'vídeo').toUpperCase()
                 };
             });
@@ -403,9 +392,7 @@
             if (item.hls && window.Hls && Hls.isSupported()) {
                 hls = new Hls();
                 hls.on(Hls.Events.ERROR, (_, data) => {
-                    if (data.fatal) {
-                        log(`Erro HLS fatal: ${data.details}`);
-                    }
+                    if (data.fatal) log(`Erro HLS fatal: ${data.details}`);
                 });
                 hls.loadSource(item.url);
                 hls.attachMedia(player);
@@ -417,48 +404,28 @@
             });
         }
 
-        async function extrairEExecutar() {
-            if (busy) return;
-            const raw = $('pageUrlInput').value.trim();
-            if (!raw) {
-                showMessage('Digite uma URL válida.', true);
+        function extrairEExecutar() {
+            const htmlContent = $('htmlInput').value.trim();
+            const baseUrl = $('baseUrlInput').value.trim();
+
+            if (!htmlContent) {
+                showMessage('Cole o código HTML no campo acima.', true);
                 return;
             }
 
-            // Se o usuário colou direto um link de vídeo (.mp4 ou .m3u8)
-            if (isMedia(raw)) {
-                items = [{ url: raw, hls: /\.m3u8/i.test(raw), label: 'DIRETO' }];
-                renderItems();
-                playIndex(0);
-                log('Link de mídia direto adicionado com sucesso.');
-                return;
-            }
-
-            let url;
-            try {
-                url = new URL(raw).href;
-            } catch {
-                showMessage('URL inválida. Verifique o endereço.', true);
-                return;
-            }
-
-            setBusy(true);
             items = [];
             currentIndex = -1;
             resetPlayer();
-            showMessage('Extraindo...');
-            log(`Iniciando extração para: ${url}`);
+            showMessage('Analisando HTML...');
+            log('Iniciando varredura no código-fonte colado...');
 
             try {
-                const html = await fetchHtml(url);
-                log('Página obtida. Varrendo links...');
-
-                const { media } = scanHtml(html, url);
+                const { media } = scanHtml(htmlContent, baseUrl);
                 items = buildItems(media);
 
                 if (!items.length) {
-                    log('Nenhum link direto encontrado. O site oculta o vídeo.');
-                    showMessage('Nenhum link detectado automaticamente. Cole o link .mp4/.m3u8 diretamente.', true);
+                    log('Nenhum link de vídeo encontrado no código HTML informado.');
+                    showMessage('Nenhum link .mp4/.m3u8 detectado no texto.', true);
                     return;
                 }
 
@@ -466,17 +433,12 @@
                 renderItems();
                 playIndex(0);
             } catch (err) {
-                log(`Erro: ${err.message}`);
-                showMessage('Falha ao processar automaticamente. Cole o link direto do vídeo.', true);
-            } finally {
-                setBusy(false);
+                log(`Erro ao processar HTML: ${err.message}`);
+                showMessage('Falha ao processar o código-fonte.', true);
             }
         }
 
         $('extractBtn').addEventListener('click', extrairEExecutar);
-        $('pageUrlInput').addEventListener('keydown', e => {
-            if (e.key === 'Enter') extrairEExecutar();
-        });
     </script>
 </body>
 </html>
