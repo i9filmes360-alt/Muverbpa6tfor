@@ -45,7 +45,7 @@
         .input-group {
             display: flex;
             gap: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
         input[type="text"] {
@@ -174,6 +174,12 @@
             overflow-y: auto;
             margin-top: 15px;
         }
+        
+        .hint {
+            font-size: 0.75rem;
+            color: #aaa;
+            margin-bottom: 15px;
+        }
     </style>
 </head>
 <body>
@@ -182,14 +188,15 @@
         <h2>⚡ i9tv - Extractor Automático & Player</h2>
         
         <div class="input-group">
-            <input type="text" id="pageUrlInput" inputmode="url" autocomplete="off" placeholder="Cole a URL da página do vídeo...">
-            <button id="extractBtn">Extrair e Tocar</button>
+            <input type="text" id="pageUrlInput" inputmode="url" autocomplete="off" placeholder="Cole a URL da página ou link direto do vídeo (.mp4/.m3u8)...">
+            <button id="extractBtn">Extrair / Tocar</button>
         </div>
+        <div class="hint">Dica: Se o site bloquear a extração automática por segurança, cole o link direto do arquivo de vídeo (.mp4 ou .m3u8) no campo acima.</div>
 
         <div class="workspace">
             <!-- Coluna da Esquerda: Links Detectados -->
             <div class="panel-box">
-                <h3>Links Extraídos da Página</h3>
+                <h3>Links Extraídos / Adicionados</h3>
                 <div class="links-list" id="linksContainer">
                     <span style="color: #666; font-size: 0.85rem; text-align: center; margin-top: 20px;">Aguardando URL...</span>
                 </div>
@@ -206,20 +213,16 @@
             </div>
         </div>
 
-        <div class="log-box" id="logBox" aria-live="polite">&gt; Status do sistema: pronto para varredura.</div>
+        <div class="log-box" id="logBox" aria-live="polite">&gt; Status do sistema: pronto.</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.8/hls.min.js"></script>
     <script>
         const MAX_LOG = 50;
-        const TIMEOUT_MS = 15000;
-        const MAX_IFRAMES = 3;
-        
-        // Proxies atualizados com codetabs, allorigins e corsproxy alternatives
+        const TIMEOUT_MS = 12000;
         const PROXIES = [
             u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-            u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-            u => `https://thingproxy.freeboard.io/fetch/${u}`
+            u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
         ];
 
         const MEDIA_REGEX = /https?:\/\/[^"'\s<>\\]+?\.(?:mp4|m3u8|ts|m4s)(?:\?[^"'\s<>\\]*)?/gi;
@@ -244,7 +247,7 @@
             busy = state;
             const btn = $('extractBtn');
             btn.disabled = state;
-            btn.textContent = state ? 'Extraindo...' : 'Extrair e Tocar';
+            btn.textContent = state ? 'Processando...' : 'Extrair / Tocar';
         }
 
         function showMessage(text, danger) {
@@ -265,13 +268,7 @@
                 try {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-                    const res = await fetch(build(url), { 
-                        signal: controller.signal,
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                        }
-                    });
+                    const res = await fetch(build(url), { signal: controller.signal });
                     clearTimeout(timeoutId);
 
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -283,27 +280,7 @@
                     log(`${label} falhou (${e.name === 'AbortError' ? 'timeout' : e.message}).`);
                 }
             }
-            throw new Error(`Todos os métodos falharam. ${lastErr ? lastErr.message : ''}`);
-        }
-
-        async function extractArchive(pageUrl) {
-            const segs = new URL(pageUrl).pathname.split('/').filter(Boolean);
-            const id = decodeURIComponent(segs[1] || '');
-            if (!id) throw new Error('ID do item não encontrado na URL.');
-            const norm = t => t.replace(/\.[^.]+$/, '').toLowerCase().trim();
-            let wanted = '';
-            if (segs.length > 2) {
-                wanted = norm(decodeURIComponent(segs.slice(2).join('/').replace(/\+/g, ' ')));
-            }
-            log(`Archive.org detectado (item: ${id}). Consultando API de metadados...`);
-            const res = await fetch(`https://archive.org/metadata/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
-            if (!res.ok) throw new Error(`API do Archive.org respondeu HTTP ${res.status}`);
-            const meta = await res.json();
-            const files = (meta.files || []).filter(f => /\.(mp4|webm|ogv|m3u8)$/i.test(f.name));
-            let chosen = wanted ? files.filter(f => norm(f.name.split('/').pop()) === wanted) : [];
-            if (!chosen.length) chosen = files;
-            return new Set(chosen.map(f =>
-                `https://archive.org/download/${encodeURIComponent(id)}/${f.name.split('/').map(encodeURIComponent).join('/')}`));
+            throw new Error(`Todos os métodos falharam. O site bloqueou o acesso automatizado.`);
         }
 
         function normalize(html) {
@@ -326,7 +303,6 @@
         function scanHtml(html, baseUrl) {
             const clean = normalize(html);
             const media = new Set(clean.match(MEDIA_REGEX) || []);
-            const iframes = new Set();
             const doc = new DOMParser().parseFromString(clean, 'text/html');
 
             const add = raw => {
@@ -340,16 +316,7 @@
                 add(el.getAttribute('src'));
                 add(el.getAttribute('data-src'));
             });
-            doc.querySelectorAll('iframe').forEach(el => {
-                const abs = resolveUrl(el.getAttribute('src') || el.getAttribute('data-src'), baseUrl);
-                if (abs) iframes.add(abs);
-            });
-            return { media, iframes };
-        }
-
-        function qualityOf(u) {
-            const m = u.match(/(2160|1440|1080|720|480|360|240)p?/);
-            return m ? parseInt(m[1], 10) : 0;
+            return { media };
         }
 
         function buildItems(urls) {
@@ -362,14 +329,13 @@
             }
             return [...seen.values()].map(u => {
                 const hlsType = /\.m3u8(\?|$)/i.test(u);
-                const q = qualityOf(u);
                 return {
                     url: u,
                     hls: hlsType,
-                    quality: q,
-                    label: (hlsType ? 'HLS' : (u.split('?')[0].split('.').pop() || 'vídeo').toUpperCase()) + (q ? ` · ${q}p` : '')
+                    quality: 0,
+                    label: hlsType ? 'HLS (Stream)' : (u.split('?')[0].split('.').pop() || 'vídeo').toUpperCase()
                 };
-            }).sort((a, b) => (b.hls - a.hls) || (b.quality - a.quality));
+            });
         }
 
         function renderItems() {
@@ -439,7 +405,6 @@
                 hls.on(Hls.Events.ERROR, (_, data) => {
                     if (data.fatal) {
                         log(`Erro HLS fatal: ${data.details}`);
-                        tryNext();
                     }
                 });
                 hls.loadSource(item.url);
@@ -448,37 +413,32 @@
                 player.src = item.url;
             }
             player.play().catch(() => {
-                log('Aviso: reprodução automática bloqueada. Clique em play no vídeo.');
+                log('Aviso: reprodução automática bloqueada pelo navegador. Clique em play no vídeo.');
             });
         }
-
-        function tryNext() {
-            if (currentIndex + 1 < items.length) {
-                log('Tentando o próximo link da lista...');
-                playIndex(currentIndex + 1);
-            } else {
-                log('Nenhum link restante ou bloqueio de CORS ativo no servidor de destino.');
-            }
-        }
-
-        $('videoPlayer').addEventListener('error', () => {
-            if (!$('videoPlayer').getAttribute('src')) return;
-            const err = $('videoPlayer').error;
-            log(`Erro no player${err ? ' (código ' + err.code + ')' : ''}.`);
-            tryNext();
-        });
 
         async function extrairEExecutar() {
             if (busy) return;
             const raw = $('pageUrlInput').value.trim();
+            if (!raw) {
+                showMessage('Digite uma URL válida.', true);
+                return;
+            }
+
+            // Se o usuário colou direto um link de vídeo (.mp4 ou .m3u8)
+            if (isMedia(raw)) {
+                items = [{ url: raw, hls: /\.m3u8/i.test(raw), label: 'DIRETO' }];
+                renderItems();
+                playIndex(0);
+                log('Link de mídia direto adicionado com sucesso.');
+                return;
+            }
 
             let url;
             try {
-                url = new URL(raw);
-                if (!/^https?:$/.test(url.protocol)) throw new Error();
-                url = url.href;
+                url = new URL(raw).href;
             } catch {
-                showMessage('Informe uma URL válida começando com http:// ou https://', true);
+                showMessage('URL inválida. Verifique o endereço.', true);
                 return;
             }
 
@@ -490,43 +450,24 @@
             log(`Iniciando extração para: ${url}`);
 
             try {
-                let found;
-                const u = new URL(url);
-                if (/(^|\.)archive\.org$/.test(u.hostname) && u.pathname.startsWith('/details/')) {
-                    found = await extractArchive(url);
-                } else {
-                    log('Buscando HTML da página...');
-                    const html = await fetchHtml(url);
-                    log('Página obtida. Varrendo links de vídeo...');
+                const html = await fetchHtml(url);
+                log('Página obtida. Varrendo links...');
 
-                    const { media, iframes } = scanHtml(html, url);
-                    found = new Set(media);
-
-                    if (iframes.size) {
-                        const list = [...iframes].slice(0, MAX_IFRAMES);
-                        log(`Seguindo ${list.length} iframe(s)...`);
-                        const results = await Promise.allSettled(list.map(async f => {
-                            const sub = await fetchHtml(f);
-                            return scanHtml(sub, f).media;
-                        }));
-                        results.forEach(r => { if (r.status === 'fulfilled') r.value.forEach(x => found.add(x)); });
-                    }
-                }
-
-                items = buildItems(found);
+                const { media } = scanHtml(html, url);
+                items = buildItems(media);
 
                 if (!items.length) {
-                    log('Nenhum link direto encontrado. O site pode carregar o player dinamicamente via JS pesado.');
-                    showMessage('Nenhum link .mp4/.m3u8 detectado.', true);
+                    log('Nenhum link direto encontrado. O site oculta o vídeo.');
+                    showMessage('Nenhum link detectado automaticamente. Cole o link .mp4/.m3u8 diretamente.', true);
                     return;
                 }
 
-                log(`Sucesso! ${items.length} link(s) após filtrar duplicatas.`);
+                log(`Sucesso! ${items.length} link(s) encontrados.`);
                 renderItems();
                 playIndex(0);
             } catch (err) {
                 log(`Erro: ${err.message}`);
-                showMessage('Falha ao processar a página. Veja o log.', true);
+                showMessage('Falha ao processar automaticamente. Cole o link direto do vídeo.', true);
             } finally {
                 setBusy(false);
             }
