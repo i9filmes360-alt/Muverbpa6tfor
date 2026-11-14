@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>i9tv - Extractor & Player Automático</title>
+    <style>
+        :root {
+            --bg-color: #1E1E1E;
+            --panel-bg: #2D2D2D;
+            --accent-color: #00FFCC;
+            --text-color: #E0E0E0;
+            --border-color: #444;
+            --danger-color: #FF5555;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: var(--panel-bg);
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+            border: 1px solid var(--border-color);
+        }
+
+        h2 {
+            margin-top: 0;
+            color: var(--accent-color);
+            font-size: 1.4rem;
+            text-align: center;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            background: #151515;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: #FFF;
+            font-size: 1rem;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent-color);
+            outline: none;
+        }
+
+        button {
+            padding: 12px 22px;
+            background: var(--accent-color);
+            color: #000;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.85;
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media(max-width: 768px) {
+            .workspace { grid-template-columns: 1fr; }
+        }
+
+        .panel-box {
+            background: #151515;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-box h3 {
+            margin-top: 0;
+            font-size: 1rem;
+            color: var(--accent-color);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+        }
+
+        .player-container {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            outline: none;
+        }
+
+        .links-list {
+            max-height: 250px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .link-chip {
+            background: #222;
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 3px solid var(--accent-color);
+            word-break: break-all;
+        }
+
+        .link-chip button {
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            background: #444;
+            color: #FFF;
+        }
+
+        .log-box {
+            background: #111;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: #888;
+            max-height: 90px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>⚡ i9tv - Extractor Automático & Player</h2>
+        
+        <div class="input-group">
+            <input type="text" id="pageUrlInput" placeholder="Cole a URL da página do vídeo (ex: Tokyvideo, etc.)...">
+            <button onclick="extrairEExecutar()">Extrair e Tocar</button>
+        </div>
+
+        <div class="workspace">
+            <!-- Coluna da Esquerda: Links Detectados -->
+            <div class="panel-box">
+                <h3>Links Extraídos da Página</h3>
+                <div class="links-list" id="linksContainer">
+                    <span style="color: #666; font-size: 0.85rem; text-align: center; margin-top: 20px;">Aguardando URL...</span>
+                </div>
+            </div>
+
+            <!-- Coluna da Direita: Player Integrado -->
+            <div class="panel-box">
+                <h3>Player de Teste / Reprodução</h3>
+                <div class="player-container">
+                    <video id="videoPlayer" controls playsinline>
+                        Seu navegador não suporta reprodução de vídeo.
+                    </video>
+                </div>
+            </div>
+        </div>
+
+        <div class="log-box" id="logBox">Status do Sistema: Pronto para varredura.</div>
+    </div>
+
+    <script>
+        function log(msg) {
+            const box = document.getElementById('logBox');
+            box.innerHTML += `<br>> ${msg}`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        async function extrairEExecutar() {
+            const url = document.getElementById('pageUrlInput').value.trim();
+            const linksContainer = document.getElementById('linksContainer');
+            const videoPlayer = document.getElementById('videoPlayer');
+            
+            linksContainer.innerHTML = '';
+            
+            if (!url) {
+                alert('Por favor, insira uma URL válida.');
+                return;
+            }
+
+            log(`Iniciando extração para: ${url}`);
+
+            try {
+                // Utilizando proxy público para bypass de CORS e leitura da página alvo
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                
+                log('Buscando HTML da página via proxy...');
+                const response = await fetch(proxyUrl);
+                const data = await response.json();
+
+                if (!data.contents) {
+                    throw new Error('Falha ao obter conteúdo da página.');
+                }
+
+                const html = data.contents;
+                log('Página obtida. Varrendo por padrões de vídeo (.mp4 / .m3u8)...');
+
+                // Regex abrangente para capturar links diretos de mídia
+                const mediaRegex = /https?:\/\/[^"'\s]+\.(mp4|m3u8)(\?[^"'\s]*)?/g;
+                let matches = new Set(html.match(mediaRegex) || []);
+
+                // Varredura adicional no DOM parseado por segurança
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                doc.querySelectorAll('source, video, iframe').forEach(el => {
+                    if (el.src) matches.add(el.src);
+                    if (el.dataset && el.dataset.src) matches.add(el.dataset.src);
+                });
+
+                if (matches.size === 0) {
+                    log('Nenhum link direto encontrado no código estático.');
+                    linksContainer.innerHTML = `<span style="color: var(--danger-color); font-size: 0.85rem; text-align: center; margin-top: 20px;">Nenhum link direto .mp4/.m3u8 detectado.</span>`;
+                    return;
+                }
+
+                log(`Sucesso! Encontrados ${matches.size} links de vídeo.`);
+
+                let primeiroLink = '';
+                let contador = 0;
+
+                matches.forEach(link => {
+                    if (contador === 0) primeiroLink = link;
+                    contador++;
+
+                    const div = document.createElement('div');
+                    div.className = 'link-chip';
+                    div.innerHTML = `
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;" title="${link}">${link}</span>
+                        <button onclick="carregarNoPlayer('${link}')">Tocar</button>
+                    `;
+                    linksContainer.appendChild(div);
+                });
+
+                // Joga o primeiro link direto automaticamente para o player
+                if (primeiroLink) {
+                    carregarNoPlayer(primeiroLink);
+                }
+
+            } catch (err) {
+                log(`Erro crítico: ${err.message}`);
+                alert('Erro ao processar a página. Verifique o log.');
+            }
+        }
+
+        function carregarNoPlayer(url) {
+            const player = document.getElementById('videoPlayer');
+            log(`Carregando no player: ${url}`);
+            player.src = url;
+            player.load();
+            player.play().catch(e => {
+                log('Aviso: Reprodução automática bloqueada pelo navegador. Clique no play do vídeo.');
+            });
+        }
+    </script>
+</body>
+</html>
