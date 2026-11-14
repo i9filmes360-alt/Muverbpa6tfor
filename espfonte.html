@@ -257,20 +257,44 @@
         // ---------- Rede ----------
         async function fetchHtml(url) {
             let lastErr = null;
-            for (const build of PROXIES) {
-                const proxyHost = new URL(build('x')).host;
+            const direct = u => u;
+            for (const build of [direct, ...PROXIES]) {
+                const label = build === direct ? 'conexão direta' : 'proxy ' + new URL(build('https://x.com')).host;
                 try {
-                    const res = await fetch(build(url), { signal: AbortSignal.timeout(TIMEOUT_MS) });
+                    const res = await fetch(build(url), { signal: AbortSignal.timeout(build === direct ? 6000 : TIMEOUT_MS) });
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const text = await res.text();
                     if (!text || text.length < 50) throw new Error('resposta vazia');
                     return text;
                 } catch (e) {
                     lastErr = e;
-                    log(`Proxy ${proxyHost} falhou (${e.name === 'TimeoutError' ? 'timeout' : e.message}).`);
+                    log(`${label} falhou (${e.name === 'TimeoutError' ? 'timeout' : e.message}).`);
                 }
             }
-            throw new Error(`Todos os proxies falharam. ${lastErr ? lastErr.message : ''}`);
+            throw new Error(`Todos os métodos falharam. ${lastErr ? lastErr.message : ''}`);
+        }
+
+        // ---------- Archive.org (API oficial, com CORS liberado) ----------
+        async function extractArchive(pageUrl) {
+            const segs = new URL(pageUrl).pathname.split('/').filter(Boolean);
+            const id = decodeURIComponent(segs[1] || '');
+            if (!id) throw new Error('ID do item não encontrado na URL.');
+            const norm = t => t.replace(/\.[^.]+$/, '').toLowerCase().trim();
+            let wanted = '';
+            if (segs.length > 2) {
+                wanted = norm(decodeURIComponent(segs.slice(2).join('/').replace(/\+/g, ' ')));
+            }
+            log(`Archive.org detectado (item: ${id}). Consultando API de metadados...`);
+            const res = await fetch(`https://archive.org/metadata/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+            if (!res.ok) throw new Error(`API do Archive.org respondeu HTTP ${res.status}`);
+            const meta = await res.json();
+            const files = (meta.files || []).filter(f => /\.(mp4|webm|ogv|m3u8)$/i.test(f.name));
+            let chosen = wanted ? files.filter(f => norm(f.name.split('/').pop()) === wanted) : [];
+            if (wanted && !chosen.length) log('Nenhum vídeo reproduzível com esse nome; listando todos do item.');
+            else if (wanted) log('Arquivo pedido não toca no navegador (ex.: .avi); usando as versões convertidas pelo Archive.org.');
+            if (!chosen.length) chosen = files;
+            return new Set(chosen.map(f =>
+                `https://archive.org/download/${encodeURIComponent(id)}/${f.name.split('/').map(encodeURIComponent).join('/')}`));
         }
 
         // ---------- Extração ----------
@@ -289,7 +313,7 @@
             } catch { return null; }
         }
 
-        function isMedia(u) { return /\.(mp4|m3u8)(\?|$)/i.test(u); }
+        function isMedia(u) { return /\.(mp4|webm|ogv|m3u8)(\?|$)/i.test(u); }
 
         function scanHtml(html, baseUrl) {
             const clean = normalize(html);
@@ -335,7 +359,7 @@
                     url: u,
                     hls: hlsType,
                     quality: q,
-                    label: (hlsType ? 'HLS' : 'MP4') + (q ? ` · ${q}p` : '')
+                    label: (hlsType ? 'HLS' : (u.split('?')[0].split('.').pop() || 'vídeo').toUpperCase()) + (q ? ` · ${q}p` : '')
                 };
             }).sort((a, b) => (b.hls - a.hls) || (b.quality - a.quality));
         }
@@ -461,21 +485,27 @@
             log(`Iniciando extração para: ${url}`);
 
             try {
-                log('Buscando HTML da página via proxy...');
-                const html = await fetchHtml(url);
-                log('Página obtida. Varrendo links de vídeo...');
+                let found;
+                const u = new URL(url);
+                if (/(^|\.)archive\.org$/.test(u.hostname) && u.pathname.startsWith('/details/')) {
+                    found = await extractArchive(url);
+                } else {
+                    log('Buscando HTML da página...');
+                    const html = await fetchHtml(url);
+                    log('Página obtida. Varrendo links de vídeo...');
 
-                const { media, iframes } = scanHtml(html, url);
-                const found = new Set(media);
+                    const { media, iframes } = scanHtml(html, url);
+                    found = new Set(media);
 
-                if (iframes.size) {
-                    const list = [...iframes].slice(0, MAX_IFRAMES);
-                    log(`Seguindo ${list.length} iframe(s)...`);
-                    const results = await Promise.allSettled(list.map(async f => {
-                        const sub = await fetchHtml(f);
-                        return scanHtml(sub, f).media;
-                    }));
-                    results.forEach(r => { if (r.status === 'fulfilled') r.value.forEach(u => found.add(u)); });
+                    if (iframes.size) {
+                        const list = [...iframes].slice(0, MAX_IFRAMES);
+                        log(`Seguindo ${list.length} iframe(s)...`);
+                        const results = await Promise.allSettled(list.map(async f => {
+                            const sub = await fetchHtml(f);
+                            return scanHtml(sub, f).media;
+                        }));
+                        results.forEach(r => { if (r.status === 'fulfilled') r.value.forEach(x => found.add(x)); });
+                    }
                 }
 
                 items = buildItems(found);
