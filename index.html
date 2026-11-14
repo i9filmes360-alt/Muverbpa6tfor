@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gerador de código do player</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; justify-content: center;
+      background: #111; color: #eee; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 24px 16px; }
+    main { width: 100%; max-width: 760px; }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    label { display: block; margin: 14px 0 6px; font-size: 14px; color: #aaa; }
+    input, textarea { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #333; border-radius: 6px;
+      background: #1b1b1b; color: #fff; }
+    textarea { height: 380px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; resize: vertical; }
+    input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid #4da3ff; outline-offset: 2px; }
+    button { margin-top: 10px; padding: 12px 18px; font-size: 16px; font-weight: 600; border: 0; border-radius: 6px;
+      background: #fff; color: #000; cursor: pointer; }
+    #erro { color: #ff8a80; font-size: 14px; min-height: 20px; margin-top: 8px; }
+    #idinfo { color: #9be29b; font-size: 14px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Gerar código do player</h1>
+
+    <label for="link">Link original do vídeo</label>
+    <input id="link" type="text" placeholder="https://youtu.be/1Bv8VKiuTDw" autocomplete="off">
+    <div id="erro" role="status"></div>
+    <div id="idinfo"></div>
+
+    <label for="codigo">Código para colar no index.html do GitHub</label>
+    <textarea id="codigo" readonly placeholder="O código completo aparece aqui depois que você colar o link."></textarea>
+    <button id="copiar" type="button">Copiar e salvar como...</button>
+  </main>
+
+  <script>
+    var MODELO = [
+      '<!DOCTYPE html>',
+      '<html lang="pt-BR">',
+      '<head>',
+      '  <meta charset="utf-8">',
+      '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+      '  <meta name="referrer" content="strict-origin-when-cross-origin">',
+      '  <title>Player</title>',
+      '  <style>',
+      '    html, body { margin: 0; height: 100%; background: #000; }',
+      '    iframe { width: 100%; height: 100%; border: 0; }',
+      '  </style>',
+      '</head>',
+      '<body>',
+      '  <iframe id="player"',
+      '    allow="autoplay; encrypted-media; fullscreen"',
+      '    referrerpolicy="strict-origin-when-cross-origin"',
+      '    allowfullscreen></iframe>',
+      '',
+      '  <script>',
+      '    // COLE O ID DO VÍDEO ENTRE AS ASPAS:',
+      '    var ID = "{{ID}}";',
+      '',
+      '    document.getElementById("player").src =',
+      '      "https://www.youtube.com/embed/" + ID + "?autoplay=1&rel=0&modestbranding=1";',
+      '  <\/script>',
+      '</body>',
+      '</html>'
+    ].join("\n");
+
+    var link = document.getElementById("link");
+    var codigo = document.getElementById("codigo");
+    var erro = document.getElementById("erro");
+    var info = document.getElementById("idinfo");
+    var botao = document.getElementById("copiar");
+
+    function extrairId(texto) {
+      texto = texto.trim();
+      if (/^[\w-]{11}$/.test(texto)) return texto;
+      var m = texto.match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/);
+      return m ? m[1] : null;
+    }
+
+    link.addEventListener("input", function () {
+      var v = link.value.trim();
+      var id = extrairId(v);
+      botao.textContent = "Copiar e salvar como...";
+      if (id) {
+        codigo.value = MODELO.replace("{{ID}}", id);
+        info.textContent = "ID encontrado: " + id;
+        erro.textContent = "";
+      } else {
+        codigo.value = "";
+        info.textContent = "";
+        erro.textContent = v ? "Não encontrei um ID nesse link." : "";
+      }
+    });
+
+    function baixar(nome) {
+      var blob = new Blob([codigo.value], { type: "text/html" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+    }
+
+    botao.addEventListener("click", async function () {
+      if (!codigo.value) return;
+
+      // 1) copia para a área de transferência
+      try {
+        codigo.select();
+        if (navigator.clipboard) await navigator.clipboard.writeText(codigo.value);
+        else document.execCommand("copy");
+      } catch (e) {}
+
+      // 2) abre a janela "Salvar como"
+      if (window.showSaveFilePicker) {
+        try {
+          var h = await window.showSaveFilePicker({
+            suggestedName: "index.html",
+            types: [{ description: "Arquivo HTML", accept: { "text/html": [".html"] } }]
+          });
+          var w = await h.createWritable();
+          await w.write(codigo.value);
+          await w.close();
+          botao.textContent = "Copiado e salvo";
+        } catch (e) {
+          botao.textContent = "Copiado (salvamento cancelado)";
+        }
+      } else {
+        // Navegadores sem a janela "Salvar como" (Firefox, Safari): pede o nome e baixa
+        var nome = prompt("Nome do arquivo:", "index.html");
+        if (nome) {
+          if (!/\.html?$/i.test(nome)) nome += ".html";
+          baixar(nome);
+          botao.textContent = "Copiado e baixado";
+        } else {
+          botao.textContent = "Copiado";
+        }
+      }
+    });
+  </script>
+</body>
+</html>
