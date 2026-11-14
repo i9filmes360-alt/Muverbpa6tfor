@@ -3,25 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Player</title>
   <style>
     html, body { margin: 0; height: 100%; background: #000; }
-    iframe { width: 100%; height: 100%; border: 0; }
+    video { width: 100%; height: 100%; background: #000; }
   </style>
 </head>
 <body>
-  <iframe id="player"
-    allow="autoplay; encrypted-media; fullscreen"
-    referrerpolicy="strict-origin-when-cross-origin"
-    allowfullscreen></iframe>
+  <video id="player" controls autoplay playsinline></video>
 
   <script>
-    // COLE O ID DO VÍDEO ENTRE AS ASPAS:
-    var ID = "wxypvfVo4eY";
+    // LINK DIRETO DO VÍDEO:
+    var URL_VIDEO = "https://cdnst70.tokyvideo.com/videos/636/636209/mp4/81e667d6089a76953909190c9785f89206adc120ca3738a3b15be1e04a895e13.mp4?secure=LYODEBUtyNRVUJbHzAct2g%3D%3D%2C1794719257";
 
-    document.getElementById("player").src =
-      "https://www.youtube.com/embed/" + ID + "?autoplay=1&rel=0&modestbranding=1";
+    document.getElementById("player").src = URL_VIDEO;
   </script>
 </body>
 </html>
