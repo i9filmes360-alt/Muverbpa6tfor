@@ -196,11 +196,11 @@
         
         <div class="input-group">
             <label for="htmlInput" style="font-size: 0.9rem; color: var(--accent-color); font-weight: bold;">Cole o Código-Fonte (HTML) da Página do Vídeo:</label>
-            <textarea id="htmlInput" placeholder="Abra a página do vídeo, exiba o código-fonte, copie tudo (`Ctrl+A`, `Ctrl+C`) e cole aqui..."></textarea>
+            <textarea id="htmlInput" placeholder="Cole o código HTML completo aqui (incluindo scripts e iframes se houver)..."></textarea>
             
             <button id="extractBtn">Extrair e Tocar</button>
         </div>
-        <div class="hint">Dica: Sem links e sem requisições de rede. Apenas cole o código HTML puro e clique no botão.</div>
+        <div class="hint">Modo de varredura avançada ativado: busca por extensões de mídia e URLs mascaradas em scripts.</div>
 
         <div class="workspace">
             <!-- Coluna da Esquerda: Links Detectados -->
@@ -228,6 +228,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.8/hls.min.js"></script>
     <script>
         const MAX_LOG = 50;
+        // Regex abrangente para pegar URLs completas ou camufladas em strings de script
         const MEDIA_REGEX = /https?:\/\/[^"'\s<>\\]+?\.(?:mp4|m3u8|ts|m4s|webm|ogv)(?:\?[^"'\s<>\\]*)?/gi;
         const JUNK_REGEX = /(thumb|preview|sprite|poster|trailer|[\/_.-]ads?[\/_.-])/i;
 
@@ -267,7 +268,12 @@
 
         function scanHtml(html) {
             const clean = normalize(html);
-            const media = new Set(clean.match(MEDIA_REGEX) || []);
+            
+            // 1. Varredura textual bruta por regex em todo o código (pega scripts, variáveis, etc.)
+            const foundUrls = clean.match(MEDIA_REGEX) || [];
+            const media = new Set(foundUrls);
+
+            // 2. Varredura via DOM Parser em tags específicas
             const doc = new DOMParser().parseFromString(clean, 'text/html');
 
             const add = raw => {
@@ -276,10 +282,16 @@
 
             doc.querySelectorAll('meta[property="og:video"], meta[property="og:video:url"], meta[property="og:video:secure_url"], meta[name="twitter:player:stream"]')
                 .forEach(m => add(m.getAttribute('content')));
-            doc.querySelectorAll('video, source, iframe').forEach(el => {
+            doc.querySelectorAll('video, source, iframe, script').forEach(el => {
                 add(el.getAttribute('src'));
                 add(el.getAttribute('data-src'));
+                // Se houver conteúdo textual dentro de tags script que contenham links
+                if (el.tagName === 'TAGNAME' || el.textContent) {
+                    const subMatches = el.textContent.match(MEDIA_REGEX);
+                    if (subMatches) subMatches.forEach(m => media.add(m));
+                }
             });
+
             return { media };
         }
 
@@ -390,7 +402,7 @@
             currentIndex = -1;
             resetPlayer();
             showMessage('Analisando HTML...');
-            log('Iniciando varredura no código-fonte colado...');
+            log('Iniciando varredura avançada no código-fonte colado...');
 
             try {
                 const { media } = scanHtml(htmlContent);
@@ -398,7 +410,7 @@
 
                 if (!items.length) {
                     log('Nenhum link de vídeo encontrado no código HTML informado.');
-                    showMessage('Nenhum link .mp4/.m3u8 detectado no texto.', true);
+                    showMessage('Nenhum link detectado. Tente colar o código da página interna do player.', true);
                     return;
                 }
 
